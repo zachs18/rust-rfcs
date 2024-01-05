@@ -21,7 +21,7 @@ The two main classes of types for which this would be useful are:
 # Guide-level explanation
 [guide-level-explanation]: #guide-level-explanation
 
-Some types can’t be copied safely. By default, if you try to implement Copy on a struct or enum containing non-Copy data, you will get the error E0204. If you know for sure that your struct or enum can be soundly copied, you can unsafely implement `Copy` with `unsafe impl Copy for MyType {}`.
+Some types can’t be copied safely. By default, if you try to implement Copy on a struct or enum containing non-Copy data, you will get the error E0204. If you know for sure that your struct or enum can be soundly copied, you can unsafely implement `Copy` with `unsafe impl Copy for MyType {}`. Note that this will remove any drop glue from your type, including its fields.
 
 <!--
 Explain the proposal as if it was already included in the language and you were teaching it to another Rust programmer. That generally means:
