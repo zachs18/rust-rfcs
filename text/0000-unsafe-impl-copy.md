@@ -82,10 +82,10 @@ unsafe impl Copy for UnsoundCopy {}
 
 let value = UnsoundCopy { range: 0..4 };
 let a = value.pair;
-let b = value.pair; // No error, since `value.ranges` is a place expression that is a field-projection from `value`.
+let b = value.pair; // No error, since `value.pair` is a place expression that is a field-projection from `value`.
 let c = value.pair.0;
 let c = value.pair.0; // No error, since `value.pair.0` is a place expression that is a (nested) field-projection from `value`.
-let c = value.ranges[0] // Error: cannot move out of index of Vec<Range<usize>>, because `value.ranges[0]` is not just a field-expression from `value`
+let c = value.many[0] // Error: cannot move out of index of Vec<Range<usize>>, because `value.many[0]` is not just a field-expression from `value`
 ```
 
 
@@ -111,7 +111,8 @@ Some code may assume that `T: Copy` implies that `T` has no interior mutability.
 - Make `UnsafeCell<T: Copy>: Copy`.
 	+ This would alleviate motivation point 1, but would have soundness implications for APIs which expose `&UnsafeCell` publicly (see Motivation), and may be a footgun for unsafe code which did not intend to implicitly copy an `UnsafeCell`.
 - Introduce an `ExplicitCopy` trait.
-	+ This trait would be for types listed in motivation point 2, for which a memcpy is sound but it would be a footgun to copy implicitly.
+	+ This trait would be for types listed in motivation point 2, for which a memcpy is always sound but it would be a footgun to copy implicitly.
+	+ This would not necessarily alleviate point 1, since types with interiour mutability are not *always* sound to memcpy, for example if they could have concurrent modification (e.g. atomics), or concurrent references to their interior (e.g. `RefCell`).
 	+ (TODO: expand this?)
 - Don't make field access of `Copy` type "special"; moving out of a field is a copy or move based only on the type of the field, not the type of the field-projected container.
 	+ This may be harder to implement(?) since it may require being able to mark a `Copy` type as partially-moved-out-of when that is not currently possible(?). (or it may be easier to implement, I don't know about the compiler internals regarding moves/copies)
