@@ -108,8 +108,11 @@ Some code may assume that `T: Copy` implies that `T` has no interior mutability.
 
 - This is a language proposal, and cannot in general be entirely replicated in a library (on stable or using existing nightly features)
 	+ To wrap a specific type `T`, you could make a `#[repr(C, align(T_align))]` struct holding an appropriately-sized array of `MaybeUninit<u8>` which could implement `Copy` and have by-reference and by-value conversions to/from `T`, but this does not work if `T` contains interior mutability, as `UnsafeCell` is not `Copy`, and cannot be generic, since there is no way to have the alignment of `T` without holding a `[T; 0]` (which is not always `Copy`), and you can only make the array length `size_of::<T>()` on nightly with `#![feature(generic_const_exprs)]`.
-- Make `UnsafeCell<T: Copy>: Copy` instead.
-	+ This would alleviate the first point of motivation, but not the second, and would have soundness implications for APIs which expose `&UnsafeCell` publicly (see Motivation).
+- Make `UnsafeCell<T: Copy>: Copy`.
+	+ This would alleviate motivation point 1, but would have soundness implications for APIs which expose `&UnsafeCell` publicly (see Motivation), and may be a footgun for unsafe code which did not intend to implicitly copy an `UnsafeCell`.
+- Introduce an `ExplicitCopy` trait.
+	+ This trait would be for types listed in motivation point 2, for which a memcpy is sound but it would be a footgun to copy implicitly.
+	+ (TODO: expand this?)
 - Don't make field access of `Copy` type "special"; moving out of a field is a copy or move based only on the type of the field, not the type of the field-projected container.
 	+ This may be harder to implement(?) since it may require being able to mark a `Copy` type as partially-moved-out-of when that is not currently possible(?). (or it may be easier to implement, I don't know about the compiler internals regarding moves/copies)
 - Have a `TrivialDrop` unimplementable auto-trait implemented by types with no drop glue (including `ManuallyDrop`), and only allow `unsafe impl Copy` for `TrivialDrop` types.
@@ -138,13 +141,17 @@ Please also take into consideration that rust sometimes intentionally diverges f
 # Unresolved questions
 [unresolved-questions]: #unresolved-questions
 
-- What types are allowed as fields in types with `unsafe impl Copy`? (Resolve before RFC is merged)
-	+ Any types (their drop glue is removed) (current wording)
+- What types are allowed as fields in types with `unsafe impl Copy`? (Resolve before RFC is merged, or maybe before RFC is proposed and just list the others in alternatives)
+	+ Any types (their drop glue is removed as though they were wrapped in `ManuallyDrop`) (current wording)
 	+ `TrivialDrop` types (see "Rationale and Alternatives").
-	+ Same rules as `union` fields (`Copy` types, references, `ManuallyDrop`, arrays and tuples of such).
+	+ Same rules as `union` fields (`Copy` types, references, `ManuallyDrop`, arrays and tuples of such) (I think this is my preference at the moment).
+	+ Any types (their drop glue is *not* removed) (I am opposed to this, as it would break the current status quo where `Copy` types have no drop glue).
 - Field access semantics (Could be resolved later)
 	+ Moving out of a non-`Copy` field of a `Copy` value copies the field (current wording).
 	+ Moving out of a non-`Copy` field of a `Copy` value leaves the value partially moved-out-of (like "normal" non-`Copy` fields in non-`Copy` values).
+- How does a type indicate that it does not implement `Copy` only as a lint?
+	+ Point 2 of the motivation is for field types which could safely implement `Copy` but do not only as a lint.
+	+ It is unclear if it would be better for there to be a trait to indicate this, or if the guarantee could just be listed in the type's documentation (and removing such a guarantee from a public type would be a semver-major change).
 
 <!--
 
