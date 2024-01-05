@@ -104,13 +104,14 @@ Some code may assume that `T: Copy` implies that `T` has no interior mutability.
 -->
 
 - This is a language proposal, and cannot in general be entirely replicated in a library (on stable or using existing nightly features)
-	+ On nightly, to wrap a specific type `T`, you could make a `#[repr(C, align(T_align))]` struct holding an appropriately-sized array of `MaybeUninit<u8>` which could implement `Copy` and have by-reference and by-value conversions to/from `T`, but this does not work if `T` contains interior mutability, as `UnsafeCell` is not `Copy`.
+	+ To wrap a specific type `T`, you could make a `#[repr(C, align(T_align))]` struct holding an appropriately-sized array of `MaybeUninit<u8>` which could implement `Copy` and have by-reference and by-value conversions to/from `T`, but this does not work if `T` contains interior mutability, as `UnsafeCell` is not `Copy`, and cannot be generic, since there is no way to have the alignment of `T` without holding a `[T; 0]` (which is not always `Copy`), and you can only make the array length `size_of::<T>()` on nightly with `#![feature(generic_const_exprs)]`.
 - Don't make field access of `Copy` type "special"; moving out of a field is a copy or move based only on the type of the field, not the type of the field-projected container.
 	+ This may be harder to implement(?) since it may require being able to mark a `Copy` type as partially-moved-out-of when that is not currently possible(?). (or it may be easier to implement, I don't know about the compiler internals regarding moves/copies)
 - Have a `TrivialDrop` unimplementable auto-trait implemented by types with no drop glue (including `ManuallyDrop`), and only allow `unsafe impl Copy` for `TrivialDrop` types.
 	+ This could be less of a footgun, as it would require users who *really* want to copy structs holding `Drop` types to additionally wrap the fields in `ManuallyDrop`.
 	+ This might also be a semver hazard (adding a `Drop` impl to a type could make downstream code which `unsafe impl Copy` for `struct Wrapper(Upstream);` stop compiling), but this could be resolved by considering the downstream user's `unsafe` code to be at fault for assuming something about the upstream code that ended up not being guaranteed, similar to how downstream `transmute`s can fail to compile if the upstream changes the size of a type.
-- Re-use the same logic for what types are valid as `union` fields, e.g. only allow `Drop` types when wrapped in `ManuallyDrop`.
+- Re-use the same logic for what types are valid as `union` fields, i.e. only allow `Drop` types when wrapped in `ManuallyDrop`.
+	+ This seems to have most of the upsides of `TrivialDrop` without requiring a new auto-trait.
 
 # Prior art
 [prior-art]: #prior-art
@@ -154,6 +155,7 @@ Please also take into consideration that rust sometimes intentionally diverges f
 - A lint for `unsafe impl Copy for T` if a safe `impl Copy for T` would work.
 - A lint for `unsafe impl Copy for T` if `T` contains `&mut` (since copying such a type would likely be immediate UB for non-zero-sized `T`).
 - `unsafe impl<T: Copy> Copy for core::cell::Cell<T> {}`
+- `unsafe impl<T> Copy for core::mem::MaybeUninit<T> {}`, not just `T: Copy`
 
 <!--
 
