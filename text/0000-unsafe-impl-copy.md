@@ -1,4 +1,4 @@
-- Feature Name: (fill me in with a unique ident, `my_awesome_feature`)
+- Feature Name: `unsafe_impl_copy`
 - Start Date: (fill me in with today's date, YYYY-MM-DD)
 - RFC PR: [rust-lang/rfcs#0000](https://github.com/rust-lang/rfcs/pull/0000)
 - Rust Issue: [rust-lang/rust#0000](https://github.com/rust-lang/rust/issues/0000)
@@ -13,7 +13,10 @@
 
 `unsafe impl Copy` allows types containing as fields types which do not implement `Copy` to be `Copy`; e.g. `core::ops::Range`, `core::cell::UnsafeCell`.
 
-As a concrete example, this feature would allow `core::cell::Cell<T: Copy>` to implement `Copy` (though that impl is intentionally not included in this RFC; if this RFC is accepted, then the question can be revisited).
+The two main classes of types for which this would be useful are:
+
+1. Types with interior mutability. `UnsafeCell` does not implement `Copy`, and it may be considered a breaking change in soundness guarantees to have it do so, since currently-sound code may be exposing `&UnsafeCell` in public APIs which would become unsound if `UnsafeCell<T: Copy>: Copy`. Despite this, it can be sound to have single-threaded interior-mutable `Copy` types, for example `Cell<T: Copy>` could soundly implement `Copy` (though that impl is intentionally not included in this RFC; if this RFC is accepted, then the question can be revisited).
+2. Types which are not `Copy` only as a lint. `core::ops::Range<Idx: Copy>` and other otherwise-copyable iterators generally do not implement `Copy` as it is considered a footgun to have `T: Iterator + Copy`. However this means that types containing these types are precluded from being `Copy` themselves.
 
 # Guide-level explanation
 [guide-level-explanation]: #guide-level-explanation
@@ -105,6 +108,8 @@ Some code may assume that `T: Copy` implies that `T` has no interior mutability.
 
 - This is a language proposal, and cannot in general be entirely replicated in a library (on stable or using existing nightly features)
 	+ To wrap a specific type `T`, you could make a `#[repr(C, align(T_align))]` struct holding an appropriately-sized array of `MaybeUninit<u8>` which could implement `Copy` and have by-reference and by-value conversions to/from `T`, but this does not work if `T` contains interior mutability, as `UnsafeCell` is not `Copy`, and cannot be generic, since there is no way to have the alignment of `T` without holding a `[T; 0]` (which is not always `Copy`), and you can only make the array length `size_of::<T>()` on nightly with `#![feature(generic_const_exprs)]`.
+- Make `UnsafeCell<T: Copy>: Copy` instead.
+	+ This would alleviate the first point of motivation, but not the second, and would have soundness implications for APIs which expose `&UnsafeCell` publicly (see Motivation).
 - Don't make field access of `Copy` type "special"; moving out of a field is a copy or move based only on the type of the field, not the type of the field-projected container.
 	+ This may be harder to implement(?) since it may require being able to mark a `Copy` type as partially-moved-out-of when that is not currently possible(?). (or it may be easier to implement, I don't know about the compiler internals regarding moves/copies)
 - Have a `TrivialDrop` unimplementable auto-trait implemented by types with no drop glue (including `ManuallyDrop`), and only allow `unsafe impl Copy` for `TrivialDrop` types.
@@ -137,9 +142,9 @@ Please also take into consideration that rust sometimes intentionally diverges f
 	+ Any types (their drop glue is removed) (current wording)
 	+ `TrivialDrop` types (see "Rationale and Alternatives").
 	+ Same rules as `union` fields (`Copy` types, references, `ManuallyDrop`, arrays and tuples of such).
-- Field access semantics
-	+ Moving out of non-`Copy` a field copies the field (current wording).
-	+ Moving out of non-`Copy` a field leaves the struct partially moved-out-of (like "normal" non-`Copy` fields in non-`Copy` structs).
+- Field access semantics (Could be resolved later)
+	+ Moving out of a non-`Copy` field of a `Copy` value copies the field (current wording).
+	+ Moving out of a non-`Copy` field of a `Copy` value leaves the value partially moved-out-of (like "normal" non-`Copy` fields in non-`Copy` values).
 
 <!--
 
