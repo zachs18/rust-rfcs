@@ -169,7 +169,7 @@ TODO
 
 ## Trivial, Simple, and Complex Metadata
 
-Currently in Rust, one can cast from `*const [u8]` to ``*const StructWithTail<[u32]>`, e.g., so some way to specify the semantics
+Currently in Rust, one can cast from `*const str` to ``*const StructWithTail<[u32]>`, e.g., so some way to specify the semantics
 of such casts is required.
 
 ### Simple Pointees and Simple Metadata
@@ -190,29 +190,96 @@ pub trait Thin = SimplePointee<SimpleMetadata = ()>;
 
 All `Sized` types implement `Thin` (a.k.a. `SimplePointee<SimpleMetadata = ()>`).
 
-`str` and slices of `Sized` types implement `SimplePointee<SimpleMetadata = usize>`
+`str` and slices of `Thin` types implement `SimplePointee<SimpleMetadata = usize>`.
 
-For `struct`s and `union`s, if all fields but the last implement `Thin`, and the last field implements `SimplePointee`, then the
-struct/union implements `SimplePointee<SimpleMetadata = <LastFieldTy as SimplePointee>::SimpleMetadata>`. Fieldless structs/unions
-implement `Thin`, as they are `Sized`
+Arrays of `T: SimplePointee` implement `SimplePointee<SimpleMetadata = <T as SimplePointee>::SimpleMetadata>`.
+
+For `struct`s, `union`s, `enum`s, and tuples, if all fields but the last implement `Thin`, and the last field implements `SimplePointee`, then the
+struct/union implements `SimplePointee<SimpleMetadata = <LastFieldTy as SimplePointee>::SimpleMetadata>`. Fieldless structs/enums
+and unit (the fieldless tuple `()`) implement `Thin`, as they are `Sized`
+
+### Trivial Pointees and Trivial Metadata
+
+Types that implement `Thin` are "trivial pointees", and have "trivial metadata". For `T: Thin`, `Metadata<T>`
+impmlements `const Default` (or just `Default` before const traits)
+
+### Complex Pointees
+
+Types that do not implement `SimplePointee` are "complex pointees" with "complex metadata".
+
+Examples of such types imclude: `[[u32]]`, `struct Foo([u32], [u8]);`
 
 
 ### Pointer casting
 
-A pointer `as`-cast from `*const T` to `*const U` is valid if either of the following is true:
+The following process is used to determine if a pointer `as`-cast from `*const T` to `*const U` is valid:
 
 * `U: Thin`, i.e. any pointer can be cast to a thin pointer, OR
-* `T: SimplePointee` and `U: SimplePointee<SimpleMetadata = T::SimpleMetadata>`, i.e. pointers can be cast to pointers with the
-  same simple metadata.
+* `T` and `U` both implement `SimplePointee` with the same `SimpleMetadata`, OR
+* `T` and `U`'s tails are the same type (ignoring lifetimes?)
 
-TODO: the above doesn't fully work, if `F: !SimpleMetadata`, then you can't cast from `*const F` to `*const WithTail<F>`,
-which currently works under `F: ?Sized`
+TODO: use a better word than "tail"; it doesn't really make sense for arrays.
 
-* OR, TODO: allow if `T` is the tail type of `U` or vice versa, or they have the same tail type.
+The "tail" of a type is found as follows:
 
-TODO
+1. If the type is a `struct`, `union`, tuple, or `enum`, has at least one field, and all but the last of whose fields is `Thin`, then the tail of the type is the
+   tail of the last field's type.
+2. If the type is an array, then the tail of the type is the tail of the array's element type.
+3. Otherwise, the type's tail is itself.
 
-### Constructing `Metadata`
+These rules are somewhat complicated, but necessary for currently-allowed `as`-casts to continue working.
+
+For example, `*const T as *const StructWithTail<T>` is currently allowed for all `T: ?Sized`, including in generic
+code when `T` is unknown. This cast would stop working in general without the third rule, as `T` could have complex metadata.
+
+Similarly, `*const str as *const StructWithTail<[u32]>` is currently allowed, which requires the second rule.
+
+#### Limitations
+
+There are some casts which may seem should be allowed, that these rules do not include, For example:
+
+```rust
+#[repr(C)]
+struct A {
+    a: [u32],
+    b: u32,
+}
+
+#[repr(C)]
+struct X {
+    x: u32,
+    y: [u32],
+}
+
+fn disallowed(p: *const A) -> *const X {
+    p as *const X
+}
+```
+
+This cast is disallowed under these rules:
+
+1. `X` is not `Thin`, so rule 1 does not allow the cast.
+2. `A` has a non-`Thin` field `a` that is not its last field, so it does not implement `SimplePointee`,
+   so rule 2 does not allow the cast.
+3. `A`'s tail is itself, and `B`'s tail is `[u32]`, these are not the same type, so rule 3 does not allow the cast.
+
+Such examples make a case for relaxing `SimplePointee`'s requirements for `struct`s to be that at most one field is
+non-`Thin`, instead of only the last field.
+TODO: why that might be difficult, trait solver might need or-bounds for like (example), or might need lattice specialization
+TODO: *maaaybe* this could be changed in the future?
+
+```rust
+struct A<T: ?Sized, U: ?Sized> {
+    a: T,
+    b: U,
+}
+// when is `A: SimplePointee`?
+// Under proposed rules: only when `T: Thin, U: SimplePointee`.
+// Under relaxed rules: when `T: Thin, U: SimplePointee` OR `T: SimplePointee, U: Thin` (OR `T: Thin, U: Thin` in the overlap case)
+```
+
+
+## Constructing `Metadata`
 
 `Metadata` can only(?) be constructed with a braced struct expression (like `Metadata { length: 42 }`).
 
