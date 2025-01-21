@@ -278,6 +278,22 @@ struct A<T: ?Sized, U: ?Sized> {
 // Under relaxed rules: when `T: Thin, U: SimplePointee` OR `T: SimplePointee, U: Thin` (OR `T: Thin, U: Thin` in the overlap case)
 ```
 
+### Unsizing
+
+```rs
+struct Foo<T: ?Sized, U: ?Sized>(T, U);
+```
+
+`Foo<T, U>` implements `Unsize<Foo<V, W>>` when `T: Unsize<V>` and ``U: Unsize<W>`.
+
+Note that to allow partial unsizing, this requires a change to how unsizing currently works: Currently, `Unsize` is not reflexive,
+i.e. `[u32; N]: Unsize<[u32]>`, but not `[u32]: Unsize<[u32]>` or `[u32; N]: Unsize<[u32; N]>`.
+
+Such reflexive impls are added to make partial unsizing (e.g. `Foo<u32, u32>` to `Foo<u32, dyn Debug>`) work without needing
+complicated rules for when it is allowed.
+
+Note that this has been brought up before somewhat (https://github.com/rust-lang/rust/issues/18598#issuecomment-417938613 ),
+though in the other direction.
 
 ## Constructing `Metadata`
 
